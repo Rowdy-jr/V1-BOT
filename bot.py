@@ -465,7 +465,8 @@ def main():
         print("â Bot is running and polling for messages...")
         print("ð± Test your bot by sending /start on Telegram")
         print("ð Flask server running on port 8080")
-         print("=")
+        print("=" * 20)
+
         
         # Start bot polling
         bot.infinity_polling(timeout=60, long_polling_timeout=60)
