@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+from flask import Flask
 from telebot import TeleBot, types
 from dotenv import load_dotenv
 
@@ -12,6 +14,24 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# ð¯ ADDED: Flask app for Render Web Service port binding
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "ð¤ Telegram Bot is running!"
+
+def run_flask():
+    """Run Flask app on port 8080 for Render"""
+    app.run(host='0.0.0.0', port=8080)
+
+def start_flask_server():
+    """Start Flask in a separate thread"""
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    print("â Flask server started on port 8080")
 
 print("ð PREMIUM TELEGRAM BOT - STARTING...")
 
@@ -97,7 +117,7 @@ TERMS_CONDITIONS = """
 By purchasing, you automatically agree to all these terms.
 """
 
-# ð¯ UPDATED WITH YOUR REAL PAYMENT DETAILS
+# UPDATED WITH YOUR REAL PAYMENT DETAILS
 PAYMENT_INFO = {
     'payment_methods': [
         "ð USDT (TRC20): TFqaxyAJpr8AC2cbrJqiLte3egme53YH8A",
@@ -438,10 +458,14 @@ def main():
     print("ð Clear Terms & Warnings Included")
     print("=" * 60)
     
+    # ð¯ ADDED: Start Flask server for Render Web Service
+    start_flask_server()
+    
     try:
         print("â Bot is running and polling for messages...")
         print("ð± Test your bot by sending /start on Telegram")
-        print("=" * 60)
+        print("ð Flask server running on port 8080")
+         print("=" * 60)
         
         # Start bot polling
         bot.infinity_polling(timeout=60, long_polling_timeout=60)
@@ -451,4 +475,4 @@ def main():
         print(f"â Error: {e}")
 
 if __name__ == '__main__':
-  main()
+    main()
