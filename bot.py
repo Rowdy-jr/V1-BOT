@@ -1,8 +1,9 @@
 import os
 import logging
 import threading
-import requests
 import time
+import requests
+import json
 from flask import Flask
 from telebot import TeleBot, types
 from dotenv import load_dotenv
@@ -36,11 +37,8 @@ def start_flask_server():
     print("Flask server started on port 8080")
 
 def keep_alive_ping():
-    """Ping the app every 10 minutes to prevent sleep on free server"""
-    # Get your Render URL - replace with your actual URL
+    """Ping the app every 5 minutes to prevent sleep on free server"""
     render_url = os.getenv('RENDER_URL', 'https://v1-bot-cd3b.onrender.com')
-    
-    print(f"Starting keep-alive ping to: {render_url}")
     
     while True:
         try:
@@ -54,8 +52,27 @@ def keep_alive_ping():
         except Exception as e:
             print(f"Keep-alive ping error: {e}")
         
-        # Wait 10 minutes before next ping
+        # Wait 5 minutes before next ping
         time.sleep(300)
+
+def save_users():
+    """Save premium users to file"""
+    data = {
+        'premium_users': list(premium_users),
+        'full_premium_users': list(full_premium_users)
+    }
+    with open('premium_users.json', 'w') as f:
+        json.dump(data, f)
+
+def load_users():
+    """Load premium users from file"""
+    try:
+        with open('premium_users.json', 'r') as f:
+            data = json.load(f)
+            premium_users.update(data.get('premium_users', []))
+            full_premium_users.update(data.get('full_premium_users', []))
+    except FileNotFoundError:
+        pass  # First time running
 
 print("PREMIUM TELEGRAM BOT - STARTING...")
 
@@ -154,6 +171,9 @@ PAYMENT_INFO = {
 premium_users = set()
 full_premium_users = set()
 
+# Load existing premium users
+load_users()
+
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     """Handle /start command"""
@@ -199,6 +219,104 @@ All premium content requires accepting our terms.
     
     bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
     logger.info(f"User {user.first_name} (ID: {user_id}) started - Tier: {user_tier}")
+
+@bot.message_handler(commands=['addpremium'])
+def add_premium_user(message):
+    """Admin command to add users to premium"""
+    if message.from_user.username != 'flexxerone':
+        bot.reply_to(message, "Unauthorized access.")
+        return
+    
+    try:
+        parts = message.text.split()
+        if len(parts) != 3:
+            bot.reply_to(message, "Usage: /addpremium <user_id> <tier>\nTiers: premium, full_premium")
+            return
+        
+        user_id = int(parts[1])
+        tier = parts[2].lower()
+        
+        if tier == 'premium':
+            premium_users.add(user_id)
+            save_users()
+            bot.reply_to(message, f"User {user_id} added to Premium tier.")
+        elif tier == 'full_premium':
+            full_premium_users.add(user_id)
+            save_users()
+            bot.reply_to(message, f"User {user_id} added to Full Premium tier.")
+        else:
+            bot.reply_to(message, "Invalid tier. Use: premium, full_premium")
+            
+    except ValueError:
+        bot.reply_to(message, "Invalid user ID. Must be a number.")
+    except Exception as e:
+        bot.reply_to(message, f"Error: {e}")
+
+@bot.message_handler(commands=['removepremium'])
+def remove_premium_user(message):
+    """Admin command to remove users from premium"""
+    if message.from_user.username != 'flexxerone':
+        bot.reply_to(message, "Unauthorized access.")
+        return
+    
+    try:
+        parts = message.text.split()
+        if len(parts) != 2:
+            bot.reply_to(message, "Usage: /removepremium <user_id>")
+            return
+        
+        user_id = int(parts[1])
+        
+        premium_users.discard(user_id)
+        full_premium_users.discard(user_id)
+        save_users()
+        
+        bot.reply_to(message, f"User {user_id} removed from premium tiers.")
+        
+    except ValueError:
+        bot.reply_to(message, "Invalid user ID. Must be a number.")
+    except Exception as e:
+        bot.reply_to(message, f"Error: {e}")
+
+@bot.message_handler(commands=['listpremium'])
+def list_premium_users(message):
+    """Admin command to list premium users"""
+    if message.from_user.username != 'flexxerone':
+        bot.reply_to(message, "Unauthorized access.")
+        return
+    
+    premium_list = "\n".join([str(uid) for uid in premium_users]) or "None"
+    full_premium_list = "\n".join([str(uid) for uid in full_premium_users]) or "None"
+    
+    response = f"""
+Premium Users ({len(premium_users)}):
+{premium_list}
+
+Full Premium Users ({len(full_premium_users)}):
+{full_premium_list}
+"""
+    bot.reply_to(message, response)
+
+@bot.message_handler(commands=['verify'])
+def verify_payment(message):
+    """User sends this after making payment"""
+    user_id = message.from_user.id
+    user_name = message.from_user.username or message.from_user.first_name
+    
+    response = f"""
+Payment Verification
+
+User: {user_name}
+ID: {user_id}
+
+Please contact @flexxerone with:
+1. This user ID: {user_id}
+2. Payment proof (screenshot)
+3. Tier purchased (Premium/Full Premium)
+
+We will activate your premium access within 24 hours.
+"""
+    bot.reply_to(message, response)
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -292,11 +410,10 @@ These free solutions should help with most common issues! If you need advanced t
         types.InlineKeyboardButton("Main Menu", callback_data="back_main")
     ]
     
-    # Add buttons in rows
-    markup.add(buttons[0], buttons[1])  # Row 1
-    markup.add(buttons[2], buttons[3])  # Row 2
-    markup.add(buttons[4])              # Row 3
-    markup.add(buttons[5])              # Row 4
+    markup.add(buttons[0], buttons[1])
+    markup.add(buttons[2], buttons[3])
+    markup.add(buttons[4])
+    markup.add(buttons[5])
     
     bot.edit_message_text(
         response,
@@ -568,23 +685,20 @@ PREMIUM TIER - ${tier_data['price']}
 
 CRITICAL WARNINGS:
 """
-    else:  # full_premium
+    else:
         response = f"""
 FULL PREMIUM - ${tier_data['price']}
 
 EXTREME RISK WARNINGS:
 """
     
-    # Add warnings
     for warning in tier_data['warnings']:
         response += f"- {warning}\n"
     
-    # Add features
     response += f"\nINCLUDED FEATURES:\n"
     for feature in tier_data['features']:
         response += f"- {feature}\n"
     
-    # Add payment info
     payment_methods = "\n".join(PAYMENT_INFO['payment_methods'])
     response += f"""
 
@@ -621,7 +735,6 @@ def show_my_account(call):
     user_id = call.from_user.id
     user = call.from_user
     
-    # Determine user tier
     if user_id in full_premium_users:
         tier = "Full Premium"
         features = PREMIUM_CONTENT['full_premium']['features']
@@ -703,7 +816,6 @@ def back_to_main(call):
     try:
         send_welcome(call.message)
     except:
-        # If editing fails, send new message
         send_welcome(call.message)
 
 @bot.message_handler(func=lambda message: True)
@@ -726,11 +838,11 @@ def main():
     # Start Flask server for Render Web Service
     start_flask_server()
     
-    # START KEEP-ALIVE PING
+    # Start keep-alive ping
     keep_alive_thread = threading.Thread(target=keep_alive_ping)
     keep_alive_thread.daemon = True
     keep_alive_thread.start()
-    print("Keep-alive ping started (every 10 minutes)")
+    print("Keep-alive ping started (every 5 minutes)")
     
     try:
         print("Bot is running and polling for messages...")
